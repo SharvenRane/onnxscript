@@ -310,12 +310,14 @@ class Flatten2Reshape(RewriteRuleClassBase):
         return op.Flatten(x)
 
     def rewrite(self, op, x: ir.Value):
-        new_shape = op.initializer(ir.Tensor(self._new_shape, name=f"{x.name}/shape"))
+        new_shape = op.initializer(ir.Tensor(self._new_shape, name=self._new_shape_name))
         return op.Reshape(x, new_shape)
 
     def check(self, context, x: ir.Value) -> MatchResult:
         check_result = MatchResult()
         self._new_shape = np.array([-1, -1], "int64")
+        # Name the shape after the Flatten output: several Flatten nodes can share an input.
+        self._new_shape_name = f"{context.output_values[0].name}/shape"
 
         # Convert axis in a positive value if possible.
         axis = context.root.attributes.get_int("axis", 1)

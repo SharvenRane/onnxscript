@@ -717,6 +717,32 @@ class Flatten2ReshapeTest(unittest.TestCase):
         inputs = np.random.default_rng(17).random(input_shape, dtype="float32")
         testing.assert_numerically_equal(model, updated_model, (inputs,), atol=0, rtol=0)
 
+    def test_flatten_to_reshape_rule_with_shared_input(self):
+        model = ir.from_onnx_text(
+            """
+            <ir_version: 10, opset_import: [ "" : 20]>
+            agraph (float[2, 3, 4] X) => (float[2, 12] Y1, float[2, 12] Y2)
+            {
+                Y1 = Flatten <axis=1> (X)
+                Y2 = Flatten <axis=-2> (X)
+            }
+            """
+        )
+        updated_model = clone_model(model)
+
+        count = _basic_rules.flatten_to_reshape_rule.apply_to_model(updated_model)
+        self.assertEqual(count, 2)
+        self.assertEqual(["Reshape", "Reshape"], [n.op_type for n in updated_model.graph])
+
+        # Each Reshape needs its own registered shape initializer.
+        shapes = [node.inputs[1] for node in updated_model.graph]
+        self.assertNotEqual(shapes[0].name, shapes[1].name)
+        for shape in shapes:
+            self.assertIs(updated_model.graph.initializers[shape.name], shape)
+
+        inputs = np.random.default_rng(19).random((2, 3, 4), dtype="float32")
+        testing.assert_numerically_equal(model, updated_model, (inputs,), atol=0, rtol=0)
+
     def test_unsupported_flatten_to_reshape(self):
         model = self.create_model(input_shape=("N", "C1", "C2"), axis=2)
 
