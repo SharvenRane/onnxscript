@@ -644,6 +644,35 @@ func (float[1,3] x) => (float[1,3] return_val) {
         self.assertEqual(len(optimized.graph), 7)
         self.assertEqual(optimized.graph[6].op_type, "Concat")
 
+    @parameterized.parameterized.expand([(11, 2), (12, 1), (13, 2), (17, 1), (17, 2), (18, 2)])
+    def test_static_split_to_sequence_with_scalar_split_keeps_model_valid_for_opset(
+        self, opset: int, split: int
+    ):
+        model = f"""
+<
+   ir_version: 8,
+   opset_import: ["" : {opset}]
+>
+func (float[4,3] x) => (float return_val) {{
+   const = Constant <value: tensor = int64 const {{{split}}}> ()
+   splits = SplitToSequence <axis: int = 0> (x, const)
+   i = Constant <value: tensor = int64 i {{1}}> ()
+   return_val = SequenceAt (splits, i)
+}}"""
+
+        # _fold checks that the folded model is still valid for its opset.
+        optimized = self._fold(model)
+        op_types = [n.op_type for n in optimized.graph]
+        if opset < 13:
+            self.assertIn("SplitToSequence", op_types)
+        else:
+            self.assertIn("Split", op_types)
+        data = np.arange(12, dtype=np.float32).reshape(4, 3)
+        np.testing.assert_array_equal(
+            ReferenceEvaluator(ir.serde.serialize_model(optimized)).run(None, {"x": data})[0],
+            ReferenceEvaluator(onnx.parser.parse_model(model)).run(None, {"x": data})[0],
+        )
+
     def test_dynamic_split_to_sequence_list_shape_rewrite(self):
         # split is a graph input with known 1-D static shape [4]; values unknown (not constant)
         # Ensures the branch: if isinstance(split_shape, tuple) and len(split_shape) == 1

@@ -812,7 +812,9 @@ def concat_from_sequence(node: ir.Node, op, state: OptimizerState) -> ReturnValu
     return None
 
 
-@register("SplitToSequence")
+# Before opset 13, Split and Squeeze take split and axes as attributes, but the
+# lowering below passes them as inputs.
+@register("SplitToSequence", version=(13, None))
 def split_to_sequence(node: ir.Node, op, state: OptimizerState) -> ReturnValue:
     """Rewriting pattern.
 
@@ -836,10 +838,11 @@ def split_to_sequence(node: ir.Node, op, state: OptimizerState) -> ReturnValue:
     """
     input = node.inputs[0]
     split = node.inputs[1] if len(node.inputs) > 1 else None
+    opset_version = 0 if node.graph is None else node.graph.opset_imports.get(node.domain, 0)
     if split is None:
         # The omitted input defaults to scalar 1. The scalar lowering below
         # uses Split's num_outputs attribute, which requires opset 18.
-        if node.graph is None or node.graph.opset_imports.get(node.domain, 0) < 18:
+        if opset_version < 18:
             return None
         split = ir.Value(const_value=ir.Tensor(np.array(1, dtype=np.int64)))
     output = node.outputs[0]
@@ -904,10 +907,11 @@ def split_to_sequence(node: ir.Node, op, state: OptimizerState) -> ReturnValue:
             return None
         num_outputs = math.ceil(split_dimension_size / split_size)
         split_outputs = [f"{output.name}_split_{i}" for i in range(num_outputs)]
-        if split_dimension_size % split_size != 0:
+        if split_dimension_size % split_size != 0 or opset_version < 18:
             # Uneven split: the last chunk is smaller. We must pass explicit split
             # sizes to Split, because Split with only num_outputs would do an
             # equal (or near-equal) split ignoring the original chunk size.
+            # Split has no num_outputs before opset 18, so explicit sizes are needed there too.
             # NOTE: Split accepts either the `split` input or the `num_outputs`
             # attribute, but not both, so num_outputs is omitted here.
             remainder = split_dimension_size - (num_outputs - 1) * split_size
