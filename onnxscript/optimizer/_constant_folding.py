@@ -799,9 +799,11 @@ def concat_from_sequence(node: ir.Node, op, state: OptimizerState) -> ReturnValu
             # Unsqueeze the inputs with concat axis if new_axis is 1
             axis_value = op.Constant(value_int=axis)
             unsqueezed_inputs = []
-            for node_input in inputs:
+            # Name the results after the output: the sequence can hold one value twice.
+            output_name = node.outputs[0].name
+            for i, node_input in enumerate(inputs):
                 unsqueezed_input = op.Unsqueeze(
-                    node_input, axis_value, _outputs=[f"{node_input.name}_unsqueeze"]
+                    node_input, axis_value, _outputs=[f"{output_name}_unsqueeze_{i}"]
                 )
                 unsqueezed_inputs.append(unsqueezed_input)
             # Send unsqueezed outputs to Concat
